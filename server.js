@@ -1,4 +1,5 @@
-const WebSocket = require('ws');
+const WebSocket = require('ws')
+const web = require('./web.js')
 
 const server = new WebSocket.Server({host: '0.0.0.0', port: 9000})
 let clients = {}
@@ -8,7 +9,7 @@ const randomCoordMin = 20
 const randomCoordMax = 200
 
 function random(min, max) {
-  return Math.random() * (max - min) + min;
+    return Math.random() * (max - min) + min;
 }
 
 function hypotenuse(x, y) {
@@ -16,7 +17,7 @@ function hypotenuse(x, y) {
 }
 
 class Client {
-    constructor(ws, x=undefined, y=undefined) {
+    constructor(ws, x = undefined, y = undefined) {
         this.ws = ws
         if (!x) {
             this.x = random(randomCoordMin, randomCoordMax)
@@ -29,12 +30,24 @@ class Client {
         this.moveY = 0
         this.speedX = 0
         this.speedY = 0
-        this.boost = 0.2
-        this.maxSpeed = 5
+        this.boost = 400
+        this.maxSpeed = 150
+        this.slowdownSpeed = 150
     }
 
     getInfo() {
-        return {'x': this.x, 'y': this.y, 'index': this.ws.index}
+        return {
+            'x': this.x,
+            'y': this.y,
+            'index': this.ws.index,
+            'moveX': this.moveX,
+            'moveY': this.moveY,
+            'speedX': this.speedX,
+            'speedY': this.speedY,
+            'boost': this.boost,
+            'maxSpeed': this.maxSpeed,
+            'slowdownSpeed': this.slowdownSpeed
+        }
     }
 }
 
@@ -63,7 +76,6 @@ function onMessage(client, message) {
                 client.class.moveX = -1
             else if (data.direction === 'right') {
                 client.class.moveX = 1
-                console.log(client.class.moveX)
             }
             break;
         case 'stopMove':
@@ -101,16 +113,29 @@ function onConnect(client) {
 
 server.on('connection', onConnect);
 
-console.log('Server started')
+console.log('Websockets running.')
 
 let lastTime = Date.now()
 
 function updater() {
     let thisTime = Date.now()
-    let timeDiff = thisTime - lastTime
+    let timeDiff = (thisTime - lastTime) / 1000
     lastTime = thisTime
     Object.keys(clients).forEach(key => {
         let client = clients[key]
+
+        let angle = Math.atan2(client.speedY, client.speedX)
+
+        if (client.speedX > 0)
+            client.speedX = Math.max(client.speedX - client.slowdownSpeed * timeDiff * Math.abs(Math.cos(angle)), 0)
+        else if (client.speedX < 0)
+            client.speedX = Math.min(client.speedX + client.slowdownSpeed * timeDiff * Math.abs(Math.cos(angle)), 0)
+
+        if (client.speedY > 0)
+            client.speedY = Math.max(client.speedY - client.slowdownSpeed * timeDiff * Math.abs(Math.sin(angle)), 0)
+        else if (client.speedY < 0)
+            client.speedY = Math.min(client.speedY + client.slowdownSpeed * timeDiff * Math.abs(Math.sin(angle)), 0)
+
         client.speedX += client.boost * client.moveX * timeDiff
         client.speedY += client.boost * client.moveY * timeDiff
         if (Math.abs(client.speedY) > client.maxSpeed) {
@@ -126,10 +151,11 @@ function updater() {
                 client.speedX = client.maxSpeed
         }
         // console.log(client.moveX)
-        if (client.speedX != 0 && client.speedY != 0) {
+        if (client.speedX != 0 || client.speedY != 0) {
             let hypot = hypotenuse(client.speedX, client.speedY)
-            let normalizedX = client.speedX * client.speedX / hypot * client.moveX
-            let normalizedY = client.speedY * client.speedY / hypot * client.moveY
+            let normalizedX = client.speedX * Math.abs(client.speedX) / hypot * timeDiff
+            let normalizedY = client.speedY * Math.abs(client.speedY) / hypot * timeDiff
+            console.log(normalizedX, client.speedX)
             client.x += normalizedX
             client.y += normalizedY
         }
@@ -137,4 +163,5 @@ function updater() {
     broadcast(cjson({'type': 'update', 'info': getClientList()}))
 }
 
-setInterval(updater, 40)
+setInterval(updater, 50)
+web.startWebServer()
